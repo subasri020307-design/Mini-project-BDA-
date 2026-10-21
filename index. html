@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Food Delivery Demand Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dense working surface. Header with data source controls, a stat strip, then analysis
+   panels (demand, conditions, workload), the forecast + predictor pair, and an SDG 8 / SDG 11 readout. */
+:root {
+  --bg: #eef2f0;
+  --surface: #fbfcfb;
+  --fg: #13201c;
+  --muted: #566661;
+  --line: #d5ddd9;
+  --accent: #0e7a6d;
+  --accent-mid: #8cc7bd;
+  --accent-soft: #dcefeb;
+  --warn: #b85a08;
+  --warn-soft: #f7e6d6;
+  --good: #1f7a45;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1513; --surface: #131e1b; --fg: #e4ece9; --muted: #92a39d; --line: #26352f;
+    --accent: #3fc1af; --accent-mid: #25695f; --accent-soft: #17302b;
+    --warn: #f0a24f; --warn-soft: #3a2a17; --good: #5fcf8f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1513; --surface: #131e1b; --fg: #e4ece9; --muted: #92a39d; --line: #26352f;
+  --accent: #3fc1af; --accent-mid: #25695f; --accent-soft: #17302b;
+  --warn: #f0a24f; --warn-soft: #3a2a17; --good: #5fcf8f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(26px, 5vw, 38px); line-height: 1.1; font-weight: 700; }
+h2 { font-size: 18px; font-weight: 600; }
+h3 { font-size: 14px; font-weight: 600; }
+.eyebrow { font: 500 11px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--muted); max-width: 68ch; margin: 6px 0 0; }
+ 
+header.top { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: flex-end; }
+.top > div { min-width: 0; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, select, input[type="file"]::file-selector-button {
+  font: 500 13px var(--font-body); color: var(--fg); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; cursor: pointer;
+}
+button.primary, input[type="file"]::file-selector-button { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button:hover, select:hover { border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type="file"] { font-size: 12px; color: var(--muted); max-width: 230px; }
+ 
+.status { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; font-size: 13px; }
+.status .pill { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
+.status.real .pill { background: var(--accent-soft); color: var(--accent); }
+.status.err .pill { background: var(--warn-soft); color: var(--warn); }
+ 
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); border: 1px solid var(--line); background: var(--surface); border-radius: 8px; }
+.stat { padding: 16px 18px; border-right: 1px solid var(--line); min-width: 0; }
+.stat:last-child { border-right: 0; }
+.stat .v { font: 700 30px/1.1 var(--font-display); font-variant-numeric: tabular-nums; margin-top: 6px; }
+.stat .s { color: var(--muted); font-size: 12px; margin-top: 4px; }
+@media (max-width: 700px) { .stat { border-right: 0; border-bottom: 1px solid var(--line); } .stat:last-child { border-bottom: 0; } }
+ 
+.filter { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.filter label { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+ 
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.panel.wide { grid-column: 1 / -1; }
+.panel p.note { margin: 0; color: var(--muted); font-size: 12.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.chart { width: 100%; min-height: 120px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+ 
+svg .gridline { stroke: var(--line); stroke-width: 1; }
+svg .tick { fill: var(--muted); font: 11px var(--font-mono); }
+svg .tick.warn { fill: var(--warn); }
+svg .bar { fill: var(--accent-mid); }
+svg .bar.peak { fill: var(--accent); }
+svg .ln-warn { fill: none; stroke: var(--warn); stroke-width: 2; stroke-linejoin: round; }
+svg .ln-main { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+svg .ln-dash { fill: none; stroke: var(--warn); stroke-width: 2; stroke-dasharray: 5 4; stroke-linejoin: round; }
+svg .area { fill: var(--accent-soft); }
+svg .dot-fest { fill: var(--warn); stroke: var(--surface); stroke-width: 2; }
+svg .dot-end { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+ 
+.heat { display: grid; gap: 3px; overflow-x: auto; }
+.heat .cell { padding: 8px 6px; border-radius: 4px; text-align: center; font: 500 12px var(--font-mono); font-variant-numeric: tabular-nums; min-width: 56px; }
+.heat .cell small { display: block; font: 400 10px var(--font-mono); color: var(--muted); }
+.heat .hd { background: none; color: var(--muted); font: 500 10.5px var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 2px; }
+.heat .rh { text-align: left; background: none; color: var(--fg); font: 500 12px var(--font-body); padding: 8px 4px; }
+ 
+.hbars { display: flex; flex-direction: column; gap: 9px; }
+.hrow { display: grid; grid-template-columns: minmax(80px, 130px) 1fr 78px; gap: 10px; align-items: center; font-size: 13px; }
+.hrow .nm { overflow-wrap: anywhere; }
+.hrow .tr { height: 10px; background: var(--accent-soft); border-radius: 5px; overflow: hidden; }
+.hrow .fl { height: 100%; background: var(--accent); border-radius: 5px; }
+.hrow .fl.w { background: var(--warn); }
+.hrow .val { font: 500 12px var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+ 
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.metric { border-top: 2px solid var(--accent); padding-top: 8px; min-width: 0; }
+.metric .v { font: 700 22px var(--font-display); font-variant-numeric: tabular-nums; }
+.metric .l { font-size: 11.5px; color: var(--muted); }
+ 
+.predictor { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.field select, .field input[type="range"] { width: 100%; }
+.field output { font: 500 13px var(--font-mono); }
+input[type="range"] { accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; padding-top: 18px; }
+.result { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; border: 1px solid var(--line); background: var(--accent-soft); border-radius: 8px; padding: 16px 18px; }
+.result .big { font: 700 44px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.result .big span { font-size: 16px; font-weight: 500; margin-left: 4px; color: var(--muted); }
+.result .txt { min-width: 0; flex: 1 1 200px; }
+.chip { display: inline-block; font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; }
+.chip.ok { background: var(--accent); color: var(--bg); }
+.chip.late { background: var(--warn); color: var(--bg); }
+.drivers { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.drivers div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dashed var(--line); padding-bottom: 5px; }
+.drivers b { font: 500 12.5px var(--font-mono); white-space: nowrap; }
+.drivers b.up { color: var(--warn); } .drivers b.down { color: var(--good); }
+ 
+.sdg { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.sdg .col { display: flex; flex-direction: column; gap: 12px; }
+.sdg .badge { display: inline-flex; align-items: baseline; gap: 10px; }
+.sdg .badge b { font: 700 28px var(--font-display); color: var(--accent); }
+.sdg ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.sdg li { display: grid; grid-template-columns: 82px 1fr; gap: 12px; align-items: baseline; }
+.sdg li .n { font: 700 22px var(--font-display); font-variant-numeric: tabular-nums; }
+.sdg li .t { color: var(--muted); font-size: 13px; }
+footer { color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+ 
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Big data mini project · SDG 8 and SDG 11</div>
+      <h1>Food Delivery Demand Lab</h1>
+      <p class="lede">Order demand by hour, what slows a delivery down, and two prediction models. Built on the Kaggle Food Delivery Dataset (Gaurav Malik) with the same cleaning and modelling steps as the Hive and PySpark scripts.</p>
+    </div>
+    <div class="tools">
+      <input type="file" id="file" accept=".csv,text/csv" aria-label="Load Kaggle train.csv">
+      <button id="reset" type="button">Use sample data</button>
+    </div>
+  </header>
+ 
+  <div class="status" id="status" role="status"></div>
+ 
+  <section class="stats" aria-label="Key figures" id="stats"></section>
+ 
+  <div class="filter">
+    <label for="city">City type</label>
+    <select id="city"></select>
+    <span class="note" style="color:var(--muted);font-size:12px">Filters the demand, conditions and workload panels. Models always use all rows.</span>
+  </div>
+ 
+  <div class="grid">
+    <section class="panel wide">
+      <div>
+        <h2>Orders by hour of day</h2>
+        <p class="note">Bars show orders placed in each hour. The line shows the average minutes taken.</p>
+      </div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>Peak hours</span><span><i style="background:var(--accent-mid)"></i>Other hours</span><span><i style="background:var(--warn)"></i>Avg minutes (right axis)</span></div>
+      <div class="chart" id="chart-hourly"></div>
+    </section>
+ 
+    <section class="panel wide">
+      <div>
+        <h2>Daily orders</h2>
+        <p class="note">Orange dots mark days flagged as a festival.</p>
+      </div>
+      <div class="chart" id="chart-daily"></div>
+    </section>
+ 
+    <section class="panel">
+      <div>
+        <h2>Average minutes: traffic and weather</h2>
+        <p class="note">Darker cells take longer. Small number is the order count behind each cell.</p>
+      </div>
+      <div class="heat" id="heat"></div>
+    </section>
+ 
+    <section class="panel">
+      <div>
+        <h2>Vehicle and city type</h2>
+        <p class="note">Average minutes per order. Orders are shown on the right.</p>
+      </div>
+      <h3>Vehicle type</h3>
+      <div class="hbars" id="bars-vehicle"></div>
+      <h3>City type</h3>
+      <div class="hbars" id="bars-city"></div>
+    </section>
+ 
+    <section class="panel">
+      <div>
+        <h2>Rider workload</h2>
+        <p class="note">Average minutes by how many orders the rider carries at once.</p>
+      </div>
+      <div class="hbars" id="bars-multi"></div>
+    </section>
+ 
+    <section class="panel">
+      <div>
+        <h2>Demand forecast (Model A)</h2>
+        <p class="note">Predicts orders per city type and hour. Trained on the first 80% of days, scored on the last 20%.</p>
+      </div>
+      <div class="metrics" id="dem-metrics"></div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>Actual orders per day</span><span><i style="background:var(--warn)"></i>Predicted</span></div>
+      <div class="chart" id="chart-forecast"></div>
+    </section>
+ 
+    <section class="panel wide">
+      <div>
+        <h2>Delivery time predictor (Model B)</h2>
+        <p class="note">Linear regression fitted in your browser. Change the inputs to see the expected minutes for one order.</p>
+      </div>
+      <div class="metrics" id="time-metrics"></div>
+      <div class="predictor">
+        <div class="field"><label for="p-dist">Distance</label><input type="range" id="p-dist" min="1" max="20" step="0.5" value="8"><output id="o-dist"></output></div>
+        <div class="field"><label for="p-hour">Hour of day</label><input type="range" id="p-hour" min="0" max="23" step="1" value="20"><output id="o-hour"></output></div>
+        <div class="field"><label for="p-traffic">Traffic</label><select id="p-traffic"></select></div>
+        <div class="field"><label for="p-weather">Weather</label><select id="p-weather"></select></div>
+        <div class="field"><label for="p-vehicle">Vehicle</label><select id="p-vehicle"></select></div>
+        <div class="field"><label for="p-multi">Orders carried together</label><select id="p-multi"><option value="0">1 (just this one)</option><option value="1">2</option><option value="2">3</option><option value="3">4</option></select></div>
+        <div class="field"><label for="p-city">City type</label><select id="p-city"></select></div>
+        <label class="check"><input type="checkbox" id="p-fest"> Festival day</label>
+      </div>
+      <div class="result">
+        <div class="big" id="pred-val"></div>
+        <div class="txt" id="pred-txt"></div>
+      </div>
+      <h3>What adds or saves minutes</h3>
+      <div class="drivers" id="drivers"></div>
+    </section>
+  </div>
+ 
+  <section class="panel">
+    <div class="eyebrow">Sustainable development goals</div>
+    <div class="sdg" id="sdg"></div>
+  </section>
+ 
+  <footer id="foot"></footer>
+</div>
+ 
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var HOURS = []; for (var h = 0; h < 24; h++) HOURS.push(h);
+  var PEAK = { 12: 1, 13: 1, 19: 1, 20: 1, 21: 1 };
+  var TRAFFIC_ORDER = ['Low', 'Medium', 'High', 'Jam'];
+  var WEATHER_ORDER = ['Sunny', 'Cloudy', 'Windy', 'Fog', 'Stormy', 'Sandstorms'];
+  var LATE_MIN = 30;
+ 
+  var fmtN = function (n) { return Math.round(n).toLocaleString('en-IN'); };
+  var f1 = function (n) { return (Math.round(n * 10) / 10).toFixed(1); };
+  var pct = function (a, b) { return b ? Math.round(1000 * a / b) / 10 : 0; };
+  var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var nice = function (s) { return String(s).replace(/_/g, ' '); };
+  var median = function (a) { var b = a.filter(function (v) { return v != null && !isNaN(v); }).sort(function (x, y) { return x - y; }); return b.length ? b[Math.floor(b.length / 2)] : 0; };
+  var niceMax = function (v) { var p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * p; };
+ 
+  /* ---------- sample data (same columns and logic as data/generate_sample_data.py) ---------- */
+  function rng(seed) {
+    return function () {
+      seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+      var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function pick(r, items, w) {
+    var tot = 0, i; for (i = 0; i < w.length; i++) tot += w[i];
+    var x = r() * tot; for (i = 0; i < w.length; i++) { x -= w[i]; if (x < 0) return items[i]; }
+    return items[items.length - 1];
+  }
+  function genSample(n) {
+    var r = rng(42);
+    var cities = ['Metropolitian', 'Urban', 'Semi-Urban'], cw = [55, 32, 13];
+    var weather = ['Sunny', 'Cloudy', 'Fog', 'Stormy', 'Windy', 'Sandstorms'], ww = [30, 25, 12, 10, 15, 8];
+    var wpen = { Sunny: 0, Cloudy: 1, Fog: 3, Stormy: 4, Windy: 2, Sandstorms: 4 };
+    var tpen = { Low: 0, Medium: 4, High: 8, Jam: 12 };
+    var vehicles = ['motorcycle', 'scooter', 'electric_scooter', 'bicycle'], vw = [55, 35, 7, 3];
+    var hw = [2, 1, 1, 1, 1, 1, 2, 3, 5, 6, 8, 14, 22, 24, 14, 9, 8, 11, 16, 24, 28, 26, 16, 6];
+    var DAYS = 55, FEST = { 35: 1, 36: 1, 50: 1 };
+    var dayIdx = [], dayW = []; for (var d = 0; d < DAYS; d++) { dayIdx.push(d); dayW.push(FEST[d] ? 1.7 : 1); }
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var city = pick(r, cities, cw), day = pick(r, dayIdx, dayW), fest = !!FEST[day];
+      var hour = pick(r, HOURS, hw), w = pick(r, weather, ww);
+      var peak = !!PEAK[hour];
+      var tw = peak ? [30, 35, 25, 10] : [55, 30, 12, 3];
+      if (city === 'Metropolitian') tw = [tw[0] * 0.6, tw[1], tw[2] * 1.3, tw[3] * 1.8];
+      var traffic = pick(r, TRAFFIC_ORDER, tw);
+      var veh = pick(r, vehicles, vw), multi = pick(r, [0, 1, 2, 3], [45, 40, 10, 5]);
+      var age = 20 + Math.floor(r() * 20);
+      var g = (r() + r() + r() + r() - 2) * 0.58;
+      var rating = Math.min(5, Math.max(1, Math.round((4.6 + g * 0.5) * 10) / 10));
+      var vcond = Math.floor(r() * 4);
+      var dist = 1.5 + r() * 18;
+      var noise = (r() + r() + r() - 1.5) * 4.2;
+      var mins = 8 + dist * 1.3 + tpen[traffic] + wpen[w] + multi * 3 + (fest ? 3 : 0) + (age - 30) * 0.15 - (rating - 4.5) * 2 + vcond * 0.5 + noise;
+      mins = Math.min(54, Math.max(10, Math.round(mins)));
+      var dt = new Date(Date.UTC(2022, 1, 11 + day));
+      out.push({ city: city, date: dt.toISOString().slice(0, 10), dow: dt.getUTCDay(), hour: hour, weather: w, traffic: traffic,
+        vehicle: veh, multi: multi, festival: fest, dist: dist, mins: mins, age: age, rating: rating, vcond: vcond });
+    }
+    return out;
+  }
+ 
+  /* ---------- real Kaggle CSV: parse and clean (mirrors hive/02_hive_tables.hql) ---------- */
+  function parseCSV(text) {
+    var rows = [], row = [], cur = '', q = false, i, c;
+    for (i = 0; i < text.length; i++) {
+      c = text[i];
+      if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+      else if (c === '"') q = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else if (c !== '\r') cur += c;
+    }
+    if (cur.length || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function haversine(a, b, c, d) {
+    var R = 6371, rad = Math.PI / 180, dLat = (c - a) * rad, dLon = (d - b) * rad;
+    var x = Math.pow(Math.sin(dLat / 2), 2) + Math.cos(a * rad) * Math.cos(c * rad) * Math.pow(Math.sin(dLon / 2), 2);
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+  function cleanKaggle(table) {j
+  
